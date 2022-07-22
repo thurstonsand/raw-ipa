@@ -21,7 +21,6 @@ pub struct Zip3<St1: Stream, St2: Stream, St3: Stream> {
 }
 
 impl<St1: Stream, St2: Stream, St3: Stream> Zip3<St1, St2, St3> {
-    #[allow(dead_code)]
     pub fn new(stream1: St1, stream2: St2, stream3: St3) -> Self {
         Self {
             stream1: stream1.fuse(),

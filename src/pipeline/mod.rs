@@ -4,12 +4,14 @@ mod add_pipeline;
 mod incrementer_adder;
 mod map2;
 mod sum;
+mod unzip3;
 mod zip3;
 
 use futures::{FutureExt, Stream, StreamExt};
 use incrementer_adder::IncrementerAdder;
 use map2::Map2;
 use sum::Sum;
+use unzip3::Unzip3;
 use zip3::Zip3;
 
 /// allow for new methods to be available on any [Stream] type
@@ -48,6 +50,21 @@ trait PipelineExt: Stream {
         Self: Sized,
     {
         Zip3::new(self, other1, other2)
+    }
+
+    fn unzip3<A: Send + Sync, B: Send + Sync, C: Send + Sync, OutSt1, OutSt2, OutSt3>(
+        self,
+    ) -> (OutSt1, OutSt2, OutSt3)
+    where
+        Self: Sized + Stream<Item = (A, B, C)> + Send + Sync,
+        OutSt1: Stream<Item = A>,
+        OutSt2: Stream<Item = B>,
+        OutSt3: Stream<Item = C>,
+    {
+        let mut unzip3 = Unzip3::new(self);
+        let out = unzip3.output();
+        tokio::spawn(unzip3);
+        out
     }
 }
 
