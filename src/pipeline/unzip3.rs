@@ -59,13 +59,12 @@ impl<A, B, C, InpSt: Stream<Item = (A, B, C)>> Unzip3<A, B, C, InpSt> {
 }
 
 macro_rules! sink_ready {
-    ($sink:expr, $cx:expr $(,)?) => {{
-        let poll_ready = futures::ready!($sink.poll_ready($cx));
-        if poll_ready.is_err() {
-            return std::task::Poll::Ready(poll_ready);
+    ($sink:expr, $cx:expr $(,)?) => {
+        match futures::ready!($sink.poll_ready($cx)) {
+            std::result::Result::Ok(_) => $sink,
+            err => return std::task::Poll::Ready(err),
         }
-        $sink
-    }};
+    };
 }
 
 fn send_data<T: Clone>(sender: &mut Sender<T>, buffered: &mut Option<T>) {
