@@ -61,34 +61,35 @@ impl<A, B, C, InpSt: Stream<Item = (A, B, C)>> Unzip3<A, B, C, InpSt> {
 macro_rules! sink_ready {
     ($sink:expr, $cx:expr $(,)?) => {
         match futures::ready!($sink.poll_ready($cx)) {
-            std::result::Result::Ok(_) => $sink,
+            std::result::Result::Ok(_) => &mut *$sink, // TODO: why?
             err => return std::task::Poll::Ready(err),
         }
     };
 }
 
-fn send_data<T: Clone>(sender: &mut Sender<T>, buffered: &mut Option<T>) {
-    let msg = buffered.clone().unwrap();
-    sender.start_send(msg).unwrap();
-    *buffered = None;
-}
-
-impl<A: Clone, B: Clone, C: Clone, InpSt: Stream<Item = (A, B, C)>> Future
-    for Unzip3<A, B, C, InpSt>
-{
+impl<A, B, C, InpSt: Stream<Item = (A, B, C)>> Future for Unzip3<A, B, C, InpSt> {
     type Output = Result<(), SendError>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut this = self.project();
         loop {
+            // "sink_ready!" will immediately return if sink is not ready.
+            // thus, we only "take()" the buffered value when we can send it.
+            // in other words, "sink_ready!" must come before "buffered_*.take()"
             if this.buffered_a.is_some() {
-                send_data(sink_ready!(this.sender_a, cx), this.buffered_a);
+                sink_ready!(this.sender_a, cx)
+                    .start_send(this.buffered_a.take().unwrap())
+                    .unwrap();
             }
             if this.buffered_b.is_some() {
-                send_data(sink_ready!(this.sender_b, cx), this.buffered_b);
+                sink_ready!(this.sender_b, cx)
+                    .start_send(this.buffered_b.take().unwrap())
+                    .unwrap();
             }
             if this.buffered_c.is_some() {
-                send_data(sink_ready!(this.sender_c, cx), this.buffered_c);
+                sink_ready!(this.sender_c, cx)
+                    .start_send(this.buffered_c.take().unwrap())
+                    .unwrap();
             }
 
             match ready!(this.inp.as_mut().poll_next(cx)) {
