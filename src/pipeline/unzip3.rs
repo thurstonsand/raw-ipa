@@ -9,15 +9,15 @@ use std::task::{Context, Poll};
 pub struct Unzip3<A, B, C, InpSt: Stream<Item = (A, B, C)>> {
     #[pin]
     inp: InpSt,
-    #[pin]
     sender_a: Sender<A>,
-    #[pin]
     sender_b: Sender<B>,
-    #[pin]
     sender_c: Sender<C>,
     receiver_a: Option<Receiver<A>>,
     receiver_b: Option<Receiver<B>>,
     receiver_c: Option<Receiver<C>>,
+    buffered_a: Option<A>,
+    buffered_b: Option<B>,
+    buffered_c: Option<C>,
 }
 
 impl<A, B, C, InpSt: Stream<Item = (A, B, C)>> Unzip3<A, B, C, InpSt> {
@@ -33,6 +33,9 @@ impl<A, B, C, InpSt: Stream<Item = (A, B, C)>> Unzip3<A, B, C, InpSt> {
             receiver_a: Some(rxa),
             receiver_b: Some(rxb),
             receiver_c: Some(rxc),
+            buffered_a: None,
+            buffered_b: None,
+            buffered_c: None,
         }
     }
 
@@ -55,26 +58,45 @@ impl<A, B, C, InpSt: Stream<Item = (A, B, C)>> Unzip3<A, B, C, InpSt> {
     }
 }
 
-macro_rules! send_data {
-    ($cx:expr, $sender:expr, $msg:expr $(,)?) => {{
-        let poll_ready = futures::ready!($sender.poll_ready($cx));
+macro_rules! sink_ready {
+    ($sink:expr, $cx:expr $(,)?) => {{
+        let poll_ready = futures::ready!($sink.poll_ready($cx));
         if poll_ready.is_err() {
             return std::task::Poll::Ready(poll_ready);
         }
-        $sender.start_send($msg).unwrap();
+        $sink
     }};
 }
-impl<A, B, C, InpSt: Stream<Item = (A, B, C)>> Future for Unzip3<A, B, C, InpSt> {
+
+fn send_data<T: Clone>(sender: &mut Sender<T>, buffered: &mut Option<T>) {
+    let msg = buffered.clone().unwrap();
+    sender.start_send(msg).unwrap();
+    *buffered = None;
+}
+
+impl<A: Clone, B: Clone, C: Clone, InpSt: Stream<Item = (A, B, C)>> Future
+    for Unzip3<A, B, C, InpSt>
+{
     type Output = Result<(), SendError>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut this = self.project();
         loop {
+            if this.buffered_a.is_some() {
+                send_data(sink_ready!(this.sender_a, cx), this.buffered_a);
+            }
+            if this.buffered_b.is_some() {
+                send_data(sink_ready!(this.sender_b, cx), this.buffered_b);
+            }
+            if this.buffered_c.is_some() {
+                send_data(sink_ready!(this.sender_c, cx), this.buffered_c);
+            }
+
             match ready!(this.inp.as_mut().poll_next(cx)) {
                 Some((a, b, c)) => {
-                    send_data!(cx, this.sender_a, a);
-                    send_data!(cx, this.sender_b, b);
-                    send_data!(cx, this.sender_c, c);
+                    *this.buffered_a = Some(a);
+                    *this.buffered_b = Some(b);
+                    *this.buffered_c = Some(c);
                 }
                 None => return Poll::Ready(Ok(())),
             }
