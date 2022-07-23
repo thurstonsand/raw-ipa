@@ -1,6 +1,5 @@
 use futures::channel::mpsc::{self, Receiver, SendError, Sender};
 use futures::{ready, Stream};
-use futures_util::{SinkExt, StreamExt};
 use pin_project::pin_project;
 use std::future::Future;
 use std::pin::Pin;
@@ -22,7 +21,7 @@ pub struct Unzip3<A, B, C, InpSt: Stream<Item = (A, B, C)>> {
 }
 
 impl<A, B, C, InpSt: Stream<Item = (A, B, C)>> Unzip3<A, B, C, InpSt> {
-    pub fn new(mut inp: InpSt) -> Self {
+    pub fn new(inp: InpSt) -> Self {
         let (txa, rxa) = mpsc::channel(1);
         let (txb, rxb) = mpsc::channel(1);
         let (txc, rxc) = mpsc::channel(1);

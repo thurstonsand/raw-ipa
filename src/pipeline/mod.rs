@@ -52,19 +52,11 @@ trait PipelineExt: Stream {
         Zip3::new(self, other1, other2)
     }
 
-    fn unzip3<A: Send + Sync, B: Send + Sync, C: Send + Sync, OutSt1, OutSt2, OutSt3>(
-        self,
-    ) -> (OutSt1, OutSt2, OutSt3)
+    fn unzip3<A, B, C>(self) -> Unzip3<A, B, C, Self>
     where
-        Self: Sized + Stream<Item = (A, B, C)> + Send + Sync,
-        OutSt1: Stream<Item = A>,
-        OutSt2: Stream<Item = B>,
-        OutSt3: Stream<Item = C>,
+        Self: Sized + Stream<Item = (A, B, C)>,
     {
-        let mut unzip3 = Unzip3::new(self);
-        let out = unzip3.output();
-        tokio::spawn(unzip3);
-        out
+        Unzip3::new(self)
     }
 }
 
