@@ -52,11 +52,11 @@ trait PipelineExt: Stream {
         Zip3::new(self, other1, other2)
     }
 
-    fn unzip3<A, B, C>(self) -> Unzip3<A, B, C, Self>
+    fn unzip3<A, B, C>(self, buffer: usize) -> Unzip3<A, B, C, Self>
     where
         Self: Sized + Stream<Item = (A, B, C)>,
     {
-        Unzip3::new(self)
+        Unzip3::new(self, buffer)
     }
 }
 

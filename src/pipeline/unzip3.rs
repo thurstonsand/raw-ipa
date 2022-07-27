@@ -5,6 +5,12 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+/// takes a single input stream with `Item = (A, B, C)` and produces 3 output streams, with items
+/// `Item = A`, `Item = B`, `Item = C`.
+///     /// buffer represents the buffer of the 3 downstream [`Stream`]s. For instance, with a buffer of
+//     /// 1, and if stream `A` is successfully polled twice, then on the second poll, it will block
+//     /// until both stream `B` and `C` are polled. That is because the first poll will fill stream
+//     /// `B` and `C`'s buffers, so even if `A`'s buffer is emptied, [`Unzip3`] cannot continue.
 #[pin_project]
 pub struct Unzip3<A, B, C, InpSt: Stream<Item = (A, B, C)>> {
     #[pin]
@@ -21,10 +27,11 @@ pub struct Unzip3<A, B, C, InpSt: Stream<Item = (A, B, C)>> {
 }
 
 impl<A, B, C, InpSt: Stream<Item = (A, B, C)>> Unzip3<A, B, C, InpSt> {
-    pub fn new(inp: InpSt) -> Self {
-        let (txa, rxa) = mpsc::channel(1);
-        let (txb, rxb) = mpsc::channel(1);
-        let (txc, rxc) = mpsc::channel(1);
+    /// `buffer` represents the size of the downstream buffers. see [Unzip3] for more information
+    pub fn new(inp: InpSt, buffer: usize) -> Self {
+        let (txa, rxa) = mpsc::channel(buffer);
+        let (txb, rxb) = mpsc::channel(buffer);
+        let (txc, rxc) = mpsc::channel(buffer);
         Unzip3 {
             inp,
             sender_a: txa,
@@ -39,6 +46,9 @@ impl<A, B, C, InpSt: Stream<Item = (A, B, C)>> Unzip3<A, B, C, InpSt> {
         }
     }
 
+    /// extracts the 3 output streams from the struct.
+    /// # Panics
+    /// panics if called more than once
     pub fn output(
         &mut self,
     ) -> (
@@ -58,15 +68,29 @@ impl<A, B, C, InpSt: Stream<Item = (A, B, C)>> Unzip3<A, B, C, InpSt> {
     }
 }
 
+/// Compare with [`futures::ready!`], but for a [`Sink`].
+/// # Arguments
+/// $sink: implements [`Sink`]
+/// $cx: relevant [`Context`] for that sink
+/// # Output
+/// If the sink is not ready, return [`Poll::Pending`].
+/// If the sink has been closed (e.g. the [`Receiver`] has been dropped), return `Poll::Ready(err)`.
+/// Otherwise, returns `$sink`.
 macro_rules! sink_ready {
     ($sink:expr, $cx:expr $(,)?) => {
         match futures::ready!($sink.poll_ready($cx)) {
-            std::result::Result::Ok(_) => &mut *$sink, // TODO: why?
+            std::result::Result::Ok(_) => &mut *$sink,
             err => return std::task::Poll::Ready(err),
         }
     };
 }
 
+/// [`Unzip3`] implements [`Future`] to drive forward consuming of the upstream [`Stream`].
+/// Without this [`Future`] implementation, there would be nothing polling upstream, since the
+/// `output()` [`Stream`]s have no direct relation.
+///
+/// More specifically, this [`Future`] polls the upstream [`Stream`], and `send`s the values onto 3
+/// different [`Sender`]s, the [`Receiver`]s of which are returned via `output()`.
 impl<A, B, C, InpSt: Stream<Item = (A, B, C)>> Future for Unzip3<A, B, C, InpSt> {
     type Output = Result<(), SendError>;
 

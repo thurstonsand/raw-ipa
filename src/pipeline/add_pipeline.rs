@@ -5,12 +5,17 @@ use futures::stream::StreamExt;
 use futures::Stream;
 use std::num::NonZeroU8;
 
+/// The leader in a shamir secret share addition computation. The leader both adds together its
+/// shares, and receives the added shares from its 2 helpers in order to output a sum.
+/// must know `k`, how many shares are required to reconstitute the original value via the lagrange
+/// polynomial.
 pub struct Leader {
     k: NonZeroU8,
 }
 
 impl Leader {
-    #[allow(dead_code)]
+    /// accepts shares to add, as well as the added shares from its two helpers
+    /// outputs the sum of the original numbers
     pub fn run(
         &self,
         source: impl Stream<Item = (Share<Fp31>, Share<Fp31>)>,
@@ -31,6 +36,8 @@ impl Leader {
     }
 }
 
+/// The helper simply adds its shares together, and outputs the addition to be sent to the leaer
+/// for a final value computation.
 pub struct Helper {}
 
 impl Helper {
@@ -64,6 +71,7 @@ mod tests {
 
     #[tokio::test]
     async fn add_pipeline() {
+        // generate the stream of numbers to add
         let nums_iter = gen_numbers(10);
         let k = NonZeroU8::new(3).unwrap();
         let n = NonZeroU8::new(4).unwrap();
@@ -78,9 +86,11 @@ mod tests {
                 let share2 = (x_shares[2].clone(), y_shares[2].clone());
                 (share0, share1, share2)
             })
-            .unzip3();
+            .unzip3(1);
         let (shares_1, shares_2, shares_3) = unzipped.output();
 
+        // must include this in order to drive the values from the `unzipped` stream into the
+        // `shares_*` streams
         tokio::spawn(async move {
             unzipped.await.expect("unzip should complete");
         });
