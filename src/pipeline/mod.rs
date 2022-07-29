@@ -1,6 +1,6 @@
 #![allow(clippy::unnecessary_fold)] // contrived example; also, `.sum()` is not implemented for stream
 
-mod add_pipeline;
+mod compute;
 mod incrementer_adder;
 mod map2;
 mod sum;
@@ -108,15 +108,18 @@ mod tests {
 
     #[tokio::test]
     async fn usage() {
-        let pipe = MultiplySumAndStringify {};
-        let inp = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-        let expected_res = inp
-            .chunks(2)
-            .map(|v| v[0] * v[1])
-            .fold(0, |acc, i| acc + i)
-            .to_string();
-        let inp_stream = stream::iter(inp);
-        let res = pipe.run(inp_stream).await;
-        assert_eq!(expected_res, res)
+        let inp: Vec<i32> = (1..=10).collect();
+        let expected_res = inp.chunks(2).map(|v| v[0] * v[1]).sum::<i32>().to_string();
+        let inp_stream = stream::iter([0i32; 10]);
+
+        // combine both pipelines to produce the final output.
+        // we could do a couple things to make this easier,
+        // for instance, have a `compose` macro a la haskell:
+        // https://wiki.haskell.org/Function_composition
+        let pipe1 = PairAndMultiply {};
+        let pipe2 = SumAndStringify {};
+        let res1 = pipe1.run(inp_stream);
+        let res2 = pipe2.run(res1).await;
+        assert_eq!(expected_res, res2);
     }
 }
