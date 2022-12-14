@@ -1,3 +1,5 @@
+#![allow(dead_code, clippy::mutable_key_type)]
+
 use crate::{
     helpers::{network::Network as Ring, ByteArrStream, Role},
     protocol::QueryId,
@@ -26,7 +28,7 @@ impl CreateQueryData {
     pub fn new(callback: oneshot::Sender<QueryId>) -> Self {
         CreateQueryData { callback }
     }
-    pub fn respond(mut self, query_id: QueryId) -> Result<(), NetworkEventError> {
+    pub fn respond(self, query_id: QueryId) -> Result<(), NetworkEventError> {
         self.callback
             .send(query_id)
             .map_err(|_| NetworkEventError::CallbackFailed {
@@ -47,7 +49,7 @@ impl PrepareQueryData {
         PrepareQueryData { query_id, callback }
     }
 
-    pub fn respond(mut self) -> Result<(), NetworkEventError> {
+    pub fn respond(self) -> Result<(), NetworkEventError> {
         let query_id = self.query_id;
         self.callback
             .send(())
@@ -60,6 +62,7 @@ impl PrepareQueryData {
 
 pub struct StartMulData {
     pub query_id: QueryId,
+    pub endpoints_positions: [Uri; 3],
     pub field_type: String,
     pub data_stream: ByteArrStream,
     callback: oneshot::Sender<()>,
@@ -68,19 +71,21 @@ pub struct StartMulData {
 impl StartMulData {
     pub fn new(
         query_id: QueryId,
+        endpoints_positions: [Uri; 3],
         field_type: String,
         data_stream: ByteArrStream,
         callback: oneshot::Sender<()>,
     ) -> Self {
         StartMulData {
             query_id,
+            endpoints_positions,
             field_type,
             data_stream,
             callback,
         }
     }
 
-    pub fn respond(mut self) -> Result<(), NetworkEventError> {
+    pub fn respond(self) -> Result<(), NetworkEventError> {
         let query_id = self.query_id;
         self.callback
             .send(())
@@ -113,7 +118,7 @@ impl<N: Network> AssignRingData<N> {
         }
     }
 
-    pub fn respond(mut self, ring: N::Ring) -> Result<(), NetworkEventError> {
+    pub fn respond(self, ring: N::Ring) -> Result<(), NetworkEventError> {
         let query_id = self.query_id;
         self.callback
             .send(ring)

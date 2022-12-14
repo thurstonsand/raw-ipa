@@ -3,12 +3,12 @@ pub mod messaging;
 pub mod network;
 
 mod buffers;
+mod bytearrstream;
 mod error;
 mod proposed_network;
-mod bytearrstream;
 
-pub use bytearrstream::ByteArrStream;
 pub use buffers::SendBufferConfig;
+pub use bytearrstream::ByteArrStream;
 pub use error::{Error, Result};
 pub use messaging::GatewayConfig;
 
