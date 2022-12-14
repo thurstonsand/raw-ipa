@@ -4,7 +4,10 @@ pub mod network;
 
 mod buffers;
 mod error;
+mod proposed_network;
+mod bytearrstream;
 
+pub use bytearrstream::ByteArrStream;
 pub use buffers::SendBufferConfig;
 pub use error::{Error, Result};
 pub use messaging::GatewayConfig;
