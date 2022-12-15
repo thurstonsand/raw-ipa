@@ -146,19 +146,19 @@ impl MulData {
 
 pub struct RingEventData {
     pub query_id: QueryId,
-    pub endpoints_to_roles: HashMap<Uri, Role>,
+    pub roles_to_endpoints: HashMap<Role, Uri>,
     pub ring_event: RingEvent,
 }
 
 impl RingEventData {
     pub fn new(
         query_id: QueryId,
-        endpoints_to_roles: HashMap<Uri, Role>,
+        roles_to_endpoints: HashMap<Role, Uri>,
         ring_event: RingEvent,
     ) -> Self {
         Self {
             query_id,
-            endpoints_to_roles,
+            roles_to_endpoints,
             ring_event,
         }
     }
