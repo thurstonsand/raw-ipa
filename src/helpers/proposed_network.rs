@@ -1,4 +1,4 @@
-#![allow(dead_code, clippy::mutable_key_type)]
+#![allow(dead_code)]
 
 use crate::{
     helpers::{network::MessageChunks, ByteArrStream, HelperIdentity, Role},
@@ -163,14 +163,21 @@ impl NetworkCommandData for StartMulData {
 
 pub struct MulData {
     pub query_id: QueryId,
+    pub field_type: String,
     pub destination: HelperIdentity,
     pub data: ByteArrStream,
 }
 
 impl MulData {
-    pub fn new(query_id: QueryId, destination: HelperIdentity, data: ByteArrStream) -> Self {
+    pub fn new(
+        query_id: QueryId,
+        field_type: String,
+        destination: HelperIdentity,
+        data: ByteArrStream,
+    ) -> Self {
         Self {
             query_id,
+            field_type,
             destination,
             data,
         }
@@ -251,10 +258,11 @@ pub trait Network<T: Transport> {
     type CommandStream: Stream<Item = NetworkCommand>;
     type Sink: futures::Sink<NetworkCommand, Error = NetworkCommandError>;
 
-    /// To be called by the entity which will handle events being emitted by `Network`.
+    /// To be called by the entity which will handle events being emitted by `Network`. There should
+    /// be only 1 subscriber
     /// # Panics
     /// May panic if called more than once
-    fn register(&self) -> Self::CommandStream;
+    fn subscribe(&self) -> Self::CommandStream;
 
     /// To be called when an entity wants to send events to the `Network`.
     fn sink(&self) -> Self::Sink;
