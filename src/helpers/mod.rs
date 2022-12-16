@@ -22,6 +22,34 @@ use tinyvec::ArrayVec;
 pub const MESSAGE_PAYLOAD_SIZE_BYTES: usize = 8;
 type MessagePayload = ArrayVec<[u8; MESSAGE_PAYLOAD_SIZE_BYTES]>;
 
+/// Represents a unique identifier of the helper instance. Compare with a [`Role`], which
+/// represents a helper's role within an MPC protocol, which may be different per protocol.
+/// `HelperIdentity` will be established at startup and then never change.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct HelperIdentity {
+    id: String,
+}
+
+impl From<String> for HelperIdentity {
+    fn from(s: String) -> Self {
+        Self { id: s }
+    }
+}
+
+impl From<&str> for HelperIdentity {
+    fn from(s: &str) -> Self {
+        Self::from(s.to_owned())
+    }
+}
+
+impl From<hyper::Uri> for HelperIdentity {
+    fn from(uri: hyper::Uri) -> Self {
+        Self {
+            id: uri.to_string(),
+        }
+    }
+}
+
 /// Represents a unique role of the helper inside the MPC circuit. Each helper may have different
 /// roles in queries it processes in parallel. For some queries it can be `H1` and for others it
 /// may be `H2` or `H3`.

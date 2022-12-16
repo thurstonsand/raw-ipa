@@ -1,11 +1,10 @@
 #![allow(dead_code, clippy::mutable_key_type)]
 
 use crate::{
-    helpers::{network::MessageChunks, ByteArrStream, Role},
+    helpers::{network::MessageChunks, ByteArrStream, HelperIdentity, Role},
     protocol::QueryId,
 };
 use futures::Stream;
-use hyper::Uri;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use tokio::sync::oneshot;
@@ -90,7 +89,7 @@ impl PrepareQueryData {
 
 pub struct StartMulData {
     pub query_id: QueryId,
-    pub endpoints_positions: [Uri; 3],
+    pub helper_positions: [HelperIdentity; 3],
     pub field_type: String,
     pub data_stream: ByteArrStream,
     callback: oneshot::Sender<()>,
@@ -99,14 +98,14 @@ pub struct StartMulData {
 impl StartMulData {
     pub fn new(
         query_id: QueryId,
-        endpoints_positions: [Uri; 3],
+        helper_positions: [HelperIdentity; 3],
         field_type: String,
         data_stream: ByteArrStream,
         callback: oneshot::Sender<()>,
     ) -> Self {
         StartMulData {
             query_id,
-            endpoints_positions,
+            helper_positions,
             field_type,
             data_stream,
             callback,
@@ -126,39 +125,39 @@ impl StartMulData {
 
 pub struct MulData {
     pub query_id: QueryId,
-    pub endpoints_positions: [Uri; 3],
-    pub endpoints_to_roles_and_stream: HashMap<Uri, (Role, ByteArrStream)>,
+    pub helper_positions: [HelperIdentity; 3],
+    pub helpers_to_roles_and_stream: HashMap<HelperIdentity, (Role, ByteArrStream)>,
 }
 
 impl MulData {
     pub fn new(
         query_id: QueryId,
-        endpoints_positions: [Uri; 3],
-        endpoints_to_roles_and_stream: HashMap<Uri, (Role, ByteArrStream)>,
+        helper_positions: [HelperIdentity; 3],
+        helpers_to_roles_and_stream: HashMap<HelperIdentity, (Role, ByteArrStream)>,
     ) -> Self {
         Self {
             query_id,
-            endpoints_positions,
-            endpoints_to_roles_and_stream,
+            helper_positions,
+            helpers_to_roles_and_stream,
         }
     }
 }
 
 pub struct TransportEventData {
     pub query_id: QueryId,
-    pub roles_to_endpoints: HashMap<Role, Uri>,
+    pub roles_to_helpers: HashMap<Role, HelperIdentity>,
     pub transport_event: TransportEvent,
 }
 
 impl TransportEventData {
     pub fn new(
         query_id: QueryId,
-        roles_to_endpoints: HashMap<Role, Uri>,
+        roles_to_helpers: HashMap<Role, HelperIdentity>,
         ring_event: TransportEvent,
     ) -> Self {
         Self {
             query_id,
-            roles_to_endpoints,
+            roles_to_helpers,
             transport_event: ring_event,
         }
     }
@@ -192,7 +191,7 @@ pub trait Network<T: Transport> {
     /// for this query.
     fn assign_ring(
         query_id: QueryId,
-        endpoints_positions: [Uri; 3],
-        endpoints_to_roles: HashMap<Uri, Role>,
+        helper_positions: [HelperIdentity; 3],
+        helpers_to_roles: HashMap<HelperIdentity, Role>,
     ) -> T;
 }
