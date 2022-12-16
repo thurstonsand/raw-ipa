@@ -47,37 +47,39 @@ pub trait Transport: Sync {
 }
 
 pub trait NetworkCommandData {
-    fn respond(self, query_id: QueryId) -> Result<(), NetworkCommandError>;
+    type RespData;
+    fn respond(self, query_id: QueryId, data: Self::RespData) -> Result<(), NetworkCommandError>;
 }
 
 pub struct CreateQueryData {
     pub context_type: ContextType,
-    pub helper_positions: [HelperIdentity; 3],
     pub field_type: String,
-    callback: oneshot::Sender<QueryId>,
+    pub helper_positions: [HelperIdentity; 3],
+    callback: oneshot::Sender<(QueryId, <Self as NetworkCommandData>::RespData)>,
 }
 
 impl CreateQueryData {
     #[must_use]
     pub fn new(
         context_type: ContextType,
-        helper_positions: [HelperIdentity; 3],
         field_type: String,
-        callback: oneshot::Sender<QueryId>,
+        helper_positions: [HelperIdentity; 3],
+        callback: oneshot::Sender<(QueryId, <Self as NetworkCommandData>::RespData)>,
     ) -> Self {
         CreateQueryData {
             context_type,
-            helper_positions,
             field_type,
+            helper_positions,
             callback,
         }
     }
 }
 
 impl NetworkCommandData for CreateQueryData {
-    fn respond(self, query_id: QueryId) -> Result<(), NetworkCommandError> {
+    type RespData = HelperIdentity;
+    fn respond(self, query_id: QueryId, data: Self::RespData) -> Result<(), NetworkCommandError> {
         self.callback
-            .send(query_id)
+            .send((query_id, data))
             .map_err(|_| NetworkCommandError::CallbackFailed {
                 event_name: "CreateQuery",
                 query_id,
@@ -88,8 +90,9 @@ impl NetworkCommandData for CreateQueryData {
 pub struct PrepareQueryData {
     pub query_id: QueryId,
     pub context_type: ContextType,
-    pub helper_positions: [HelperIdentity; 3],
     pub field_type: String,
+    pub helper_positions: [HelperIdentity; 3],
+    pub helpers_to_roles: HashMap<HelperIdentity, Role>,
     callback: oneshot::Sender<()>,
 }
 
@@ -98,22 +101,25 @@ impl PrepareQueryData {
     pub fn new(
         query_id: QueryId,
         context_type: ContextType,
-        helper_positions: [HelperIdentity; 3],
         field_type: String,
+        helper_positions: [HelperIdentity; 3],
+        helpers_to_roles: HashMap<HelperIdentity, Role>,
         callback: oneshot::Sender<()>,
     ) -> Self {
         PrepareQueryData {
             query_id,
             context_type,
-            helper_positions,
             field_type,
+            helper_positions,
+            helpers_to_roles,
             callback,
         }
     }
 }
 
 impl NetworkCommandData for PrepareQueryData {
-    fn respond(self, query_id: QueryId) -> Result<(), NetworkCommandError> {
+    type RespData = ();
+    fn respond(self, query_id: QueryId, _: Self::RespData) -> Result<(), NetworkCommandError> {
         self.callback
             .send(())
             .map_err(|_| NetworkCommandError::CallbackFailed {
@@ -144,7 +150,8 @@ impl StartMulData {
 }
 
 impl NetworkCommandData for StartMulData {
-    fn respond(self, query_id: QueryId) -> Result<(), NetworkCommandError> {
+    type RespData = ();
+    fn respond(self, query_id: QueryId, _: Self::RespData) -> Result<(), NetworkCommandError> {
         self.callback
             .send(())
             .map_err(|_| NetworkCommandError::CallbackFailed {
@@ -171,7 +178,8 @@ impl MulData {
 }
 
 impl NetworkCommandData for MulData {
-    fn respond(self, _: QueryId) -> Result<(), NetworkCommandError> {
+    type RespData = ();
+    fn respond(self, _: QueryId, _: Self::RespData) -> Result<(), NetworkCommandError> {
         Ok(())
     }
 }
@@ -197,16 +205,42 @@ impl TransportEventData {
 }
 
 impl NetworkCommandData for TransportEventData {
-    fn respond(self, _: QueryId) -> Result<(), NetworkCommandError> {
+    type RespData = ();
+    fn respond(self, _: QueryId, _: Self::RespData) -> Result<(), NetworkCommandError> {
         Ok(())
     }
 }
 
 pub enum NetworkCommand {
     // Commands sent to handle query creation and initialization
+
+    // Helper which receives this command becomes the de facto leader of the query setup. It will:
+    // * generate `query_id`
+    // * assign roles to each helper, generating a role mapping `helper id` -> `role`
+    // * store `query_id` -> (`context_type`, `field_type`, `secret share mapping`, `role mapping`)
+    // * inform other helpers of new `query_id` and associated data
+    // * respond with `query_id` and helper which should receive `Start*` command
     CreateQuery(CreateQueryData),
+
+    // Helper which receives this message is a follower of the query setup. It will receive this
+    // message from the leader, who has received the `CreateQuery` command. It will:
+    // * store `query_id` -> (`context_type`, `field_type`, `secret share mapping`, `role mapping`)
+    // * respond with ack
     PrepareQuery(PrepareQueryData),
+
+    // Helper which receives this message is the leader of the mul protocol, as chosen by the leader
+    // of the `CreateQuery` command. It will:
+    // * retrieve (`context_type`, `field_type`, `secret share mapping`, `role mapping`)
+    // * assign `Transport` using `secret share mapping` and `role mapping`
+    // * break apart incoming data into 3 different streams, 1 for each helper
+    // * send 2 of the streams to other helpers
+    // * run the protocol using final stream of data, `context_type`, `field_type`
     StartMul(StartMulData),
+
+    // Helper which receives this message is a follower of the mul protocol. It will:
+    // * retrieve (`context_type`, `field_type`, `secret share mapping`, `role mapping`)
+    // * assign `Transport` using `secret share mapping` and `role mapping`
+    // * run the protocol using incoming stream of data, `context_type`, `field_type`
     Mul(MulData),
 
     // Commands sent within the context of a `Ring`, to be used internally
