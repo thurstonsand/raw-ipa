@@ -18,6 +18,12 @@ pub use semi_honest::SemiHonestContext;
 use super::basics::Reshare;
 use super::boolean::RandomBits;
 
+/// Provides a way to branch on the type of `Context` at runtime.
+pub enum ContextType {
+    SemiHonest,
+    Malicious,
+}
+
 /// Context used by each helper to perform secure computation. Provides access to shared randomness
 /// generator and communication channel.
 pub trait Context<F: Field>:

@@ -2,7 +2,7 @@
 
 use crate::{
     helpers::{network::MessageChunks, ByteArrStream, HelperIdentity, Role},
-    protocol::QueryId,
+    protocol::{context::ContextType, QueryId},
 };
 use futures::Stream;
 use std::collections::HashMap;
@@ -46,16 +46,36 @@ pub trait Transport: Sync {
     fn recv_stream(&self) -> Self::MessageStream;
 }
 
+pub trait NetworkCommandData {
+    fn respond(self, query_id: QueryId) -> Result<(), NetworkCommandError>;
+}
+
 pub struct CreateQueryData {
+    pub context_type: ContextType,
+    pub helper_positions: [HelperIdentity; 3],
+    pub field_type: String,
     callback: oneshot::Sender<QueryId>,
 }
 
 impl CreateQueryData {
     #[must_use]
-    pub fn new(callback: oneshot::Sender<QueryId>) -> Self {
-        CreateQueryData { callback }
+    pub fn new(
+        context_type: ContextType,
+        helper_positions: [HelperIdentity; 3],
+        field_type: String,
+        callback: oneshot::Sender<QueryId>,
+    ) -> Self {
+        CreateQueryData {
+            context_type,
+            helper_positions,
+            field_type,
+            callback,
+        }
     }
-    pub fn respond(self, query_id: QueryId) -> Result<(), NetworkCommandError> {
+}
+
+impl NetworkCommandData for CreateQueryData {
+    fn respond(self, query_id: QueryId) -> Result<(), NetworkCommandError> {
         self.callback
             .send(query_id)
             .map_err(|_| NetworkCommandError::CallbackFailed {
@@ -67,17 +87,33 @@ impl CreateQueryData {
 
 pub struct PrepareQueryData {
     pub query_id: QueryId,
+    pub context_type: ContextType,
+    pub helper_positions: [HelperIdentity; 3],
+    pub field_type: String,
     callback: oneshot::Sender<()>,
 }
 
 impl PrepareQueryData {
     #[must_use]
-    pub fn new(query_id: QueryId, callback: oneshot::Sender<()>) -> Self {
-        PrepareQueryData { query_id, callback }
+    pub fn new(
+        query_id: QueryId,
+        context_type: ContextType,
+        helper_positions: [HelperIdentity; 3],
+        field_type: String,
+        callback: oneshot::Sender<()>,
+    ) -> Self {
+        PrepareQueryData {
+            query_id,
+            context_type,
+            helper_positions,
+            field_type,
+            callback,
+        }
     }
+}
 
-    pub fn respond(self) -> Result<(), NetworkCommandError> {
-        let query_id = self.query_id;
+impl NetworkCommandData for PrepareQueryData {
+    fn respond(self, query_id: QueryId) -> Result<(), NetworkCommandError> {
         self.callback
             .send(())
             .map_err(|_| NetworkCommandError::CallbackFailed {
@@ -89,8 +125,6 @@ impl PrepareQueryData {
 
 pub struct StartMulData {
     pub query_id: QueryId,
-    pub helper_positions: [HelperIdentity; 3],
-    pub field_type: String,
     pub data_stream: ByteArrStream,
     callback: oneshot::Sender<()>,
 }
@@ -98,22 +132,19 @@ pub struct StartMulData {
 impl StartMulData {
     pub fn new(
         query_id: QueryId,
-        helper_positions: [HelperIdentity; 3],
-        field_type: String,
         data_stream: ByteArrStream,
         callback: oneshot::Sender<()>,
     ) -> Self {
         StartMulData {
             query_id,
-            helper_positions,
-            field_type,
             data_stream,
             callback,
         }
     }
+}
 
-    pub fn respond(self) -> Result<(), NetworkCommandError> {
-        let query_id = self.query_id;
+impl NetworkCommandData for StartMulData {
+    fn respond(self, query_id: QueryId) -> Result<(), NetworkCommandError> {
         self.callback
             .send(())
             .map_err(|_| NetworkCommandError::CallbackFailed {
@@ -125,21 +156,23 @@ impl StartMulData {
 
 pub struct MulData {
     pub query_id: QueryId,
-    pub helper_positions: [HelperIdentity; 3],
-    pub helpers_to_roles_and_stream: HashMap<HelperIdentity, (Role, ByteArrStream)>,
+    pub destination: HelperIdentity,
+    pub data: ByteArrStream,
 }
 
 impl MulData {
-    pub fn new(
-        query_id: QueryId,
-        helper_positions: [HelperIdentity; 3],
-        helpers_to_roles_and_stream: HashMap<HelperIdentity, (Role, ByteArrStream)>,
-    ) -> Self {
+    pub fn new(query_id: QueryId, destination: HelperIdentity, data: ByteArrStream) -> Self {
         Self {
             query_id,
-            helper_positions,
-            helpers_to_roles_and_stream,
+            destination,
+            data,
         }
+    }
+}
+
+impl NetworkCommandData for MulData {
+    fn respond(self, _: QueryId) -> Result<(), NetworkCommandError> {
+        Ok(())
     }
 }
 
@@ -160,6 +193,12 @@ impl TransportEventData {
             roles_to_helpers,
             transport_event: ring_event,
         }
+    }
+}
+
+impl NetworkCommandData for TransportEventData {
+    fn respond(self, _: QueryId) -> Result<(), NetworkCommandError> {
+        Ok(())
     }
 }
 
@@ -189,7 +228,7 @@ pub trait Network<T: Transport> {
     /// Use when preparing to run a protocol. This [`Transport`] will enable messages to be sent/received
     /// within the context of a particular query, using relative [`Role`] positioning as defined
     /// for this query.
-    fn assign_ring(
+    fn assign_transport(
         query_id: QueryId,
         helper_positions: [HelperIdentity; 3],
         helpers_to_roles: HashMap<HelperIdentity, Role>,
