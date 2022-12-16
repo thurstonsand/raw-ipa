@@ -11,7 +11,7 @@ use std::fmt::Debug;
 use tokio::sync::oneshot;
 
 #[derive(Debug, thiserror::Error)]
-pub enum NetworkEventError {
+pub enum NetworkCommandError {
     #[error("event {event_name} failed to respond to callback for query_id {}", .query_id.as_ref())]
     CallbackFailed {
         event_name: &'static str,
@@ -30,14 +30,14 @@ impl SendMessageData {
 }
 
 /// Events sent within the context of executing a query
-pub enum RingEvent {
+pub enum TransportEvent {
     SendMessage(SendMessageData),
 }
 
-pub trait Ring: Sync {
+pub trait Transport: Sync {
     /// Type of the channel that is used to send messages to other helpers
-    type Sink: futures::Sink<RingEvent, Error = NetworkEventError> + Send + Unpin + 'static;
-    type MessageStream: Stream<Item = RingEvent> + Send + Unpin + 'static;
+    type Sink: futures::Sink<TransportEvent, Error = NetworkCommandError> + Send + Unpin + 'static;
+    type MessageStream: Stream<Item = TransportEvent> + Send + Unpin + 'static;
 
     /// Returns a sink that accepts data to be sent to other helper parties.
     fn sink(&self) -> Self::Sink;
@@ -56,10 +56,10 @@ impl CreateQueryData {
     pub fn new(callback: oneshot::Sender<QueryId>) -> Self {
         CreateQueryData { callback }
     }
-    pub fn respond(self, query_id: QueryId) -> Result<(), NetworkEventError> {
+    pub fn respond(self, query_id: QueryId) -> Result<(), NetworkCommandError> {
         self.callback
             .send(query_id)
-            .map_err(|_| NetworkEventError::CallbackFailed {
+            .map_err(|_| NetworkCommandError::CallbackFailed {
                 event_name: "CreateQuery",
                 query_id,
             })
@@ -77,11 +77,11 @@ impl PrepareQueryData {
         PrepareQueryData { query_id, callback }
     }
 
-    pub fn respond(self) -> Result<(), NetworkEventError> {
+    pub fn respond(self) -> Result<(), NetworkCommandError> {
         let query_id = self.query_id;
         self.callback
             .send(())
-            .map_err(|_| NetworkEventError::CallbackFailed {
+            .map_err(|_| NetworkCommandError::CallbackFailed {
                 event_name: "PrepareQuery",
                 query_id,
             })
@@ -113,11 +113,11 @@ impl StartMulData {
         }
     }
 
-    pub fn respond(self) -> Result<(), NetworkEventError> {
+    pub fn respond(self) -> Result<(), NetworkCommandError> {
         let query_id = self.query_id;
         self.callback
             .send(())
-            .map_err(|_| NetworkEventError::CallbackFailed {
+            .map_err(|_| NetworkCommandError::CallbackFailed {
                 event_name: "StartMul",
                 query_id,
             })
@@ -144,22 +144,22 @@ impl MulData {
     }
 }
 
-pub struct RingEventData {
+pub struct TransportEventData {
     pub query_id: QueryId,
     pub roles_to_endpoints: HashMap<Role, Uri>,
-    pub ring_event: RingEvent,
+    pub transport_event: TransportEvent,
 }
 
-impl RingEventData {
+impl TransportEventData {
     pub fn new(
         query_id: QueryId,
         roles_to_endpoints: HashMap<Role, Uri>,
-        ring_event: RingEvent,
+        ring_event: TransportEvent,
     ) -> Self {
         Self {
             query_id,
             roles_to_endpoints,
-            ring_event,
+            transport_event: ring_event,
         }
     }
 }
@@ -172,27 +172,27 @@ pub enum NetworkCommand {
     Mul(MulData),
 
     // Commands sent within the context of a `Ring`, to be used internally
-    RingEvent(RingEventData),
+    TransportEvent(TransportEventData),
 }
 
-pub trait Network<R: Ring> {
-    type EventStream: Stream<Item = NetworkCommand>;
-    type Sink: futures::Sink<NetworkCommand, Error = NetworkEventError>;
+pub trait Network<T: Transport> {
+    type CommandStream: Stream<Item = NetworkCommand>;
+    type Sink: futures::Sink<NetworkCommand, Error = NetworkCommandError>;
 
     /// To be called by the entity which will handle events being emitted by `Network`.
     /// # Panics
     /// May panic if called more than once
-    fn register(&self) -> Self::EventStream;
+    fn register(&self) -> Self::CommandStream;
 
     /// To be called when an entity wants to send events to the `Network`.
     fn sink(&self) -> Self::Sink;
 
-    /// Use when preparing to run a protocol. This [`Ring`] will enable messages to be sent/received
+    /// Use when preparing to run a protocol. This [`Transport`] will enable messages to be sent/received
     /// within the context of a particular query, using relative [`Role`] positioning as defined
     /// for this query.
     fn assign_ring(
         query_id: QueryId,
         endpoints_positions: [Uri; 3],
         endpoints_to_roles: HashMap<Uri, Role>,
-    ) -> R;
+    ) -> T;
 }
