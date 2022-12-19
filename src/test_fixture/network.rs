@@ -175,7 +175,7 @@ impl InMemoryEndpoint {
 
 #[async_trait]
 impl Network for Arc<InMemoryEndpoint> {
-    type Sink = NetworkSink<MessageChunks>;
+    type Sink = NetworkSink<MessageChunks, Error>;
     type MessageStream = ReceiverStream<MessageChunks>;
 
     fn sink(&self) -> Self::Sink {

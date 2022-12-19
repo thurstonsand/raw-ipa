@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use futures::{ready, Stream};
 use pin_project::pin_project;
 use std::fmt::{Debug, Formatter};
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::sync::mpsc;
@@ -59,25 +60,24 @@ impl Debug for ChannelId {
 /// requires. The only error that [`PollSender`] will generate is "channel closed", and thus is the
 /// only error message forwarded from this [`NetworkSink`].
 #[pin_project]
-pub struct NetworkSink<T> {
+pub struct NetworkSink<T, E> {
     #[pin]
     inner: PollSender<T>,
+    _phantom: PhantomData<E>,
 }
 
-impl<T: Send + 'static> NetworkSink<T> {
+impl<T: Send + 'static, E> NetworkSink<T, E> {
     #[must_use]
     pub fn new(sender: mpsc::Sender<T>) -> Self {
         Self {
             inner: PollSender::new(sender),
+            _phantom: PhantomData::default(),
         }
     }
 }
 
-impl<T: Send + 'static> futures::Sink<T> for NetworkSink<T>
-where
-    Error: From<PollSendError<T>>,
-{
-    type Error = Error;
+impl<T: Send + 'static, E: From<PollSendError<T>>> futures::Sink<T> for NetworkSink<T, E> {
+    type Error = E;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         ready!(self.project().inner.poll_ready(cx)?);

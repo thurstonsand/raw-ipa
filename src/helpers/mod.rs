@@ -1,11 +1,12 @@
 pub mod http;
 pub mod messaging;
 pub mod network;
+pub mod proposed_network;
+pub mod proposed_transport;
 
 mod buffers;
 mod bytearrstream;
 mod error;
-mod proposed_network;
 
 pub use buffers::SendBufferConfig;
 pub use bytearrstream::ByteArrStream;
@@ -28,6 +29,12 @@ type MessagePayload = ArrayVec<[u8; MESSAGE_PAYLOAD_SIZE_BYTES]>;
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct HelperIdentity {
     id: String,
+}
+
+impl AsRef<str> for HelperIdentity {
+    fn as_ref(&self) -> &str {
+        &self.id
+    }
 }
 
 impl From<String> for HelperIdentity {

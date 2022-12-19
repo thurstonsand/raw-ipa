@@ -1,0 +1,116 @@
+use crate::{
+    helpers::{
+        network::NetworkSink,
+        proposed_transport::{Transport, TransportCommand, TransportCommandError},
+        HelperIdentity,
+    },
+    net::discovery::peer,
+    protocol::QueryId,
+    sync::{Arc, Mutex},
+};
+use async_trait::async_trait;
+use futures::Stream;
+use futures_util::StreamExt;
+use std::collections::{hash_map::Entry, HashMap};
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
+
+pub struct HttpTransport<'a> {
+    id: HelperIdentity,
+    peers_conf: &'a [peer::Config; 3],
+    subscribe_receiver: Arc<Mutex<Option<mpsc::Receiver<TransportCommand>>>>,
+    ongoing_queries: Arc<Mutex<HashMap<QueryId, mpsc::Sender<TransportCommand>>>>,
+}
+
+impl<'a> HttpTransport<'a> {
+    pub fn new<St: Stream<Item = TransportCommand> + Send + 'static + Unpin>(
+        id: HelperIdentity,
+        peers_conf: &'a [peer::Config; 3],
+        // represents incoming HTTP requests
+        req_handler_stream: St,
+    ) -> Self {
+        let (subscribe_sender, subscribe_receiver) = mpsc::channel(1);
+        let ongoing_queries = Arc::new(Mutex::new(HashMap::new()));
+        Self::consume_req_handler_stream(
+            req_handler_stream,
+            Arc::clone(&ongoing_queries),
+            subscribe_sender.clone(),
+        );
+        Self {
+            id,
+            peers_conf,
+            subscribe_receiver: Arc::new(Mutex::new(Some(subscribe_receiver))),
+            ongoing_queries,
+        }
+    }
+
+    fn consume_req_handler_stream<St: Stream<Item = TransportCommand> + Send + 'static + Unpin>(
+        mut req_handler_stream: St,
+        ongoing_queries: Arc<Mutex<HashMap<QueryId, mpsc::Sender<TransportCommand>>>>,
+        subscribe_sender: mpsc::Sender<TransportCommand>,
+    ) {
+        tokio::spawn(async move {
+            while let Some(command) = req_handler_stream.next().await {
+                match command {
+                    TransportCommand::QueryEvent(data) => {
+                        // ensure `MutexGuard` is dropped before `.await`
+                        let transport_sender = {
+                            ongoing_queries
+                                .lock()
+                                .unwrap()
+                                .get(&data.query_id)
+                                .map(Clone::clone)
+                        };
+                        if let Some(transport_sender) = transport_sender {
+                            transport_sender
+                                .send(TransportCommand::QueryEvent(data))
+                                .await
+                                .unwrap();
+                        } else {
+                            tracing::error!(
+                                "received message intended for query {}, but query did not exist",
+                                data.query_id.as_ref()
+                            );
+                        }
+                    }
+                    other => subscribe_sender.send(other).await.unwrap(),
+                }
+            }
+        });
+    }
+}
+
+#[async_trait]
+impl<'a> Transport for HttpTransport<'a> {
+    type CommandStream = ReceiverStream<TransportCommand>;
+    type Sink = NetworkSink<TransportCommand, TransportCommandError>;
+
+    fn subscribe_to_general(&self) -> Self::CommandStream {
+        ReceiverStream::new(
+            self.subscribe_receiver
+                .lock()
+                .unwrap()
+                .take()
+                .expect("subscribe should only be called once"),
+        )
+    }
+
+    fn subscribe_to_query(
+        &self,
+        query_id: QueryId,
+    ) -> Result<Self::CommandStream, TransportCommandError> {
+        let (tx, rx) = mpsc::channel(1);
+        let mut ongoing_networks = self.ongoing_queries.lock().unwrap();
+        match ongoing_networks.entry(query_id) {
+            Entry::Occupied(_) => Err(TransportCommandError::PreviouslySubscribed { query_id }),
+            Entry::Vacant(entry) => {
+                entry.insert(tx);
+                Ok(ReceiverStream::new(rx))
+            }
+        }
+    }
+
+    async fn send(&self, _command: TransportCommand) -> Result<(), TransportCommandError> {
+        todo!()
+    }
+}

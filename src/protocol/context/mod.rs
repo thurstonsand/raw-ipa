@@ -19,6 +19,7 @@ use super::basics::Reshare;
 use super::boolean::RandomBits;
 
 /// Provides a way to branch on the type of `Context` at runtime.
+#[derive(Debug)]
 pub enum ContextType {
     SemiHonest,
     Malicious,
