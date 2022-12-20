@@ -3,8 +3,7 @@ use crate::{
     helpers::{
         messaging::{ReceiveRequest, SendRequest},
         network::{ChannelId, MessageChunks},
-        proposed_network::{NetworkEvent, SendMessageData},
-        proposed_transport::TransportCommandError,
+        proposed_transport::TransportError,
         HelperIdentity, Role,
     },
     net::MpcHelperServerError,
@@ -44,7 +43,7 @@ pub enum Error {
     #[error("Encountered unknown identity {}", .0.as_ref())]
     UnknownIdentity(HelperIdentity),
     #[error("Failed to send command on the transport: {0}")]
-    TransportError(#[from] TransportCommandError),
+    TransportError(#[from] TransportError),
     #[error("server encountered an error: {0}")]
     ServerError(#[from] MpcHelperServerError),
 }
@@ -107,18 +106,6 @@ impl From<PollSendError<MessageChunks>> for Error {
         let inner = source.to_string().into();
         match source.into_inner() {
             Some((channel, _)) => Self::SendError { channel, inner },
-            None => Self::PollSendError { inner },
-        }
-    }
-}
-
-impl From<PollSendError<NetworkEvent>> for Error {
-    fn from(source: PollSendError<NetworkEvent>) -> Self {
-        let inner = source.to_string().into();
-        match source.into_inner() {
-            Some(NetworkEvent::SendMessage(SendMessageData {
-                chunks: (channel, _),
-            })) => Self::SendError { channel, inner },
             None => Self::PollSendError { inner },
         }
     }

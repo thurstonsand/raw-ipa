@@ -1,7 +1,7 @@
 use crate::{
     helpers::{
         network::NetworkSink,
-        proposed_transport::{Transport, TransportCommand, TransportCommandError},
+        proposed_transport::{SubscriptionType, Transport, TransportCommand, TransportError},
         HelperIdentity,
     },
     net::discovery::peer,
@@ -28,7 +28,7 @@ impl<'a> HttpTransport<'a> {
         peers_conf: &'a [peer::Config; 3],
         // represents incoming HTTP requests
         req_handler_stream: St,
-    ) -> Self {
+    ) -> Arc<Self> {
         let (subscribe_sender, subscribe_receiver) = mpsc::channel(1);
         let ongoing_queries = Arc::new(Mutex::new(HashMap::new()));
         Self::consume_req_handler_stream(
@@ -36,12 +36,12 @@ impl<'a> HttpTransport<'a> {
             Arc::clone(&ongoing_queries),
             subscribe_sender.clone(),
         );
-        Self {
+        Arc::new(Self {
             id,
             peers_conf,
             subscribe_receiver: Arc::new(Mutex::new(Some(subscribe_receiver))),
             ongoing_queries,
-        }
+        })
     }
 
     fn consume_req_handler_stream<St: Stream<Item = TransportCommand> + Send + 'static + Unpin>(
@@ -52,7 +52,7 @@ impl<'a> HttpTransport<'a> {
         tokio::spawn(async move {
             while let Some(command) = req_handler_stream.next().await {
                 match command {
-                    TransportCommand::QueryEvent(data) => {
+                    TransportCommand::NetworkEvent(data) => {
                         // ensure `MutexGuard` is dropped before `.await`
                         let transport_sender = {
                             ongoing_queries
@@ -63,7 +63,7 @@ impl<'a> HttpTransport<'a> {
                         };
                         if let Some(transport_sender) = transport_sender {
                             transport_sender
-                                .send(TransportCommand::QueryEvent(data))
+                                .send(TransportCommand::NetworkEvent(data))
                                 .await
                                 .unwrap();
                         } else {
@@ -81,36 +81,40 @@ impl<'a> HttpTransport<'a> {
 }
 
 #[async_trait]
-impl<'a> Transport for HttpTransport<'a> {
+impl<'a> Transport for Arc<HttpTransport<'a>> {
     type CommandStream = ReceiverStream<TransportCommand>;
-    type Sink = NetworkSink<TransportCommand, TransportCommandError>;
+    type Sink = NetworkSink<TransportCommand, TransportError>;
 
-    fn subscribe_to_general(&self) -> Self::CommandStream {
-        ReceiverStream::new(
-            self.subscribe_receiver
-                .lock()
-                .unwrap()
-                .take()
-                .expect("subscribe should only be called once"),
-        )
-    }
-
-    fn subscribe_to_query(
-        &self,
-        query_id: QueryId,
-    ) -> Result<Self::CommandStream, TransportCommandError> {
-        let (tx, rx) = mpsc::channel(1);
-        let mut ongoing_networks = self.ongoing_queries.lock().unwrap();
-        match ongoing_networks.entry(query_id) {
-            Entry::Occupied(_) => Err(TransportCommandError::PreviouslySubscribed { query_id }),
-            Entry::Vacant(entry) => {
-                entry.insert(tx);
-                Ok(ReceiverStream::new(rx))
+    fn subscribe(&self, subscription_type: SubscriptionType) -> Self::CommandStream {
+        match subscription_type {
+            SubscriptionType::Administration => ReceiverStream::new(
+                self.subscribe_receiver
+                    .lock()
+                    .unwrap()
+                    .take()
+                    .expect("subscribe should only be called once"),
+            ),
+            SubscriptionType::Query(query_id) => {
+                let (tx, rx) = mpsc::channel(1);
+                let mut ongoing_networks = self.ongoing_queries.lock().unwrap();
+                match ongoing_networks.entry(query_id) {
+                    Entry::Occupied(_) => {
+                        panic!("attempted to subscribe to commands for query id {}, but there is already a previous subscriber", query_id.as_ref())
+                    }
+                    Entry::Vacant(entry) => {
+                        entry.insert(tx);
+                        ReceiverStream::new(rx)
+                    }
+                }
             }
         }
     }
 
-    async fn send(&self, _command: TransportCommand) -> Result<(), TransportCommandError> {
+    async fn send(
+        &self,
+        destination: &HelperIdentity,
+        command: TransportCommand,
+    ) -> Result<(), TransportError> {
         todo!()
     }
 }

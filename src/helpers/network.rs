@@ -31,7 +31,7 @@ pub type MessageChunks = (ChannelId, Vec<u8>);
 /// Network interface for components that require communication.
 #[async_trait]
 pub trait Network: Sync {
-    /// Type of the channel that is used to send messages to other helpers
+    /// Type of the channel that is used to send/receive messages to/from other helpers
     type Sink: futures::Sink<MessageChunks, Error = Error> + Send + Unpin + 'static;
     type MessageStream: Stream<Item = MessageChunks> + Send + Unpin + 'static;
 
