@@ -2,14 +2,13 @@ pub mod handlers;
 
 use crate::{
     error::BoxError,
-    helpers::{http::HttpNetwork, network::MessageChunks},
+    helpers::network::MessageChunks,
     net::LastSeenMessages,
     protocol::QueryId,
     sync::{Arc, Mutex},
     task::JoinHandle,
     telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED},
 };
-use ::tokio::sync::mpsc;
 use axum::{
     middleware,
     response::{IntoResponse, Response},
@@ -27,6 +26,8 @@ use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
 use tracing::Span;
 
+// need prefixed `::` due to `shuttle::future` override
+use ::tokio::sync::mpsc;
 #[cfg(all(feature = "shuttle", test))]
 use shuttle::future as tokio;
 
@@ -444,7 +445,6 @@ mod tests {
 #[cfg(all(test, not(feature = "shuttle")))]
 mod e2e_tests {
     use crate::{
-        helpers::http::HttpNetwork,
         net::server::{handlers::EchoData, BindTarget, MessageSendMap, MpcHelperServer},
         protocol::QueryId,
         telemetry::metrics::{RequestProtocolVersion, REQUESTS_RECEIVED},

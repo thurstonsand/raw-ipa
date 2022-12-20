@@ -15,17 +15,17 @@ use std::collections::{hash_map::Entry, HashMap};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
-pub struct HttpTransport<'a> {
+pub struct HttpTransport {
     id: HelperIdentity,
-    peers_conf: &'a [peer::Config; 3],
+    peers_conf: &'static [peer::Config; 3],
     subscribe_receiver: Arc<Mutex<Option<mpsc::Receiver<TransportCommand>>>>,
     ongoing_queries: Arc<Mutex<HashMap<QueryId, mpsc::Sender<TransportCommand>>>>,
 }
 
-impl<'a> HttpTransport<'a> {
+impl HttpTransport {
     pub fn new<St: Stream<Item = TransportCommand> + Send + 'static + Unpin>(
         id: HelperIdentity,
-        peers_conf: &'a [peer::Config; 3],
+        peers_conf: &'static [peer::Config; 3],
         // represents incoming HTTP requests
         req_handler_stream: St,
     ) -> Arc<Self> {
@@ -81,7 +81,7 @@ impl<'a> HttpTransport<'a> {
 }
 
 #[async_trait]
-impl<'a> Transport for Arc<HttpTransport<'a>> {
+impl Transport for Arc<HttpTransport> {
     type CommandStream = ReceiverStream<TransportCommand>;
     type Sink = NetworkSink<TransportCommand, TransportError>;
 

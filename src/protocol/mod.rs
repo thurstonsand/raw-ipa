@@ -205,8 +205,8 @@ impl Debug for Step {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(
     feature = "serde",
-    derive(serde::Deserialize),
-    serde(try_from = "&str")
+    derive(serde::Serialize, serde::Deserialize),
+    serde(into = "&str", try_from = "&str")
 )]
 pub struct QueryId;
 
@@ -216,6 +216,11 @@ impl AsRef<str> for QueryId {
     }
 }
 
+impl From<QueryId> for &str {
+    fn from(query_id: QueryId) -> Self {
+        query_id.as_ref()
+    }
+}
 impl TryFrom<&str> for QueryId {
     type Error = Error;
 

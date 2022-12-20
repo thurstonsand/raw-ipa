@@ -20,6 +20,7 @@ use super::boolean::RandomBits;
 
 /// Provides a way to branch on the type of `Context` at runtime.
 #[derive(Debug)]
+#[cfg_attr(feature = "enable-serde", derive(serde::Deserialize))]
 pub enum ContextType {
     SemiHonest,
     Malicious,
